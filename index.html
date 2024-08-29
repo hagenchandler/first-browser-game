@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>certainly</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: Arial, sans-serif; }
+        canvas { display: block; }
+        #endScreen, #typingTest, #pauseMenu, #mainMenu, #connectionPopup {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            display: none;
+        }
+        #typingPrompt { font-size: 18px; margin-bottom: 10px; }
+        #typingInput { font-size: 16px; padding: 5px; width: 300px; }
+        button { margin: 5px; padding: 10px; font-size: 16px; }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="mainMenu">
+        <h2 style="color:#000080">certainly</h2>
+        <button onclick="startGame()">Play</button>
+        <button onclick="showHowToPlay()">How to Play</button>
+    </div>
+    <div id="endScreen">
+        <h2>Time's Up!</h2>
+        <p>Your score: <span id="finalScore"></span></p>
+        <p>High score: <span id="highScore"></span></p>
+        <button onclick="restartGame()">Play Again</button>
+        <button onclick="showMainMenu()">Main Menu</button>
+    </div>
+    <div id="typingTest">
+        <h3>Type the message to send:</h3>
+        <p id="typingPrompt"></p>
+        <input type="text" id="typingInput" autofocus>
+    </div>
+    <div id="pauseMenu">
+        <h2>Paused</h2>
+        <button onclick="resumeGame()">Resume</button>
+        <button onclick="showHowToPlay()">How To Play</button>
+        <button onclick="restartGame()">Restart</button>
+        <button onclick="showMainMenu()">Main Menu</button>
+    </div>
+    <div id="connectionPopup">
+        <p id="connectionMessage"></p>
+        <button onclick="acceptConnection()">✓</button>
+        <button onclick="rejectConnection()">✗</button>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const endScreen = document.getElementById('endScreen');
+        const finalScoreSpan = document.getElementById('finalScore');
+        const highScoreSpan = document.getElementById('highScore');
+        const typingTest = document.getElementById('typingTest');
+        const typingPrompt = document.getElementById('typingPrompt');
+        const typingInput = document.getElementById('typingInput');
+        const pauseMenu = document.getElementById('pauseMenu');
+        const mainMenu = document.getElementById('mainMenu');
+        const connectionPopup = document.getElementById('connectionPopup');
+        const connectionMessage = document.getElementById('connectionMessage');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let score = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
+        let rectangles = [];
+        let envelopes = [];
+        let bells = [];
+        let gameTime = 60;
+        let isGameActive = false;
+        let isTypingTest = false;
+        let isPaused = false;
+        let timerInterval;
+
+        const uiLineY = 60;
+        const names = ["Alice", "Bob", "Charlie", "David", "Eve", "Frank", "Grace", "Henry", "Ivy", "Jack"];
+        const phrases = ["Thank you for connecting!", "I appreciate you reaching out!", "When would you be available?"];
+
+        class Rectangle {
+            constructor(type) {
+                this.width = 150;
+                this.height = 50;
+                this.x = Math.random() * (canvas.width - this.width);
+                this.y = Math.random() * (canvas.height - this.height - uiLineY) + uiLineY;
+                this.color = type === 'apply' ? 'navy' : (type === 'envelope' ? 'green' : 'orange');
+                this.shrinkRate = 0.2;
+                this.initialWidth = this.width;
+                this.initialHeight = this.height;
+                this.type = type;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.roundRect(this.x, this.y, this.width, this.height, 10);
+                ctx.fillStyle = this.color;
+                ctx.fill();
+                ctx.fillStyle = 'white';
+                ctx.font = `${18 * (this.width / this.initialWidth)}px Arial`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                if (this.type === 'apply') {
+                    ctx.fillText('Apply Now', this.x + this.width / 2, this.y + this.height / 2);
+                } else if (this.type === 'envelope') {
+                    ctx.fillText('✉', this.x + this.width / 2, this.y + this.height / 2);
+                } else if (this.type === 'bell') {
+                    ctx.fillText('🔔', this.x + this.width / 2, this.y + this.height / 2);
+                }
+            }
+
+            update() {
+                this.width -= this.shrinkRate;
+                this.height -= this.shrinkRate * (this.initialHeight / this.initialWidth);
+                return this.width > 0 && this.height > 0;
+            }
+        }
+
+        function createRectangles(count) {
+            for (let i = 0; i < count; i++) {
+                rectangles.push(new Rectangle('apply'));
+            }
+        }
+
+        function createEnvelope() {
+            envelopes.push(new Rectangle('envelope'));
+        }
+
+        function createBell() {
+            bells.push(new Rectangle('bell'));
+        }
+
+        function drawScore() {
+            ctx.font = '24px Arial';
+            ctx.fillStyle = 'black';
+            ctx.textAlign = 'right';
+            ctx.fillText(`Score: ${score}`, canvas.width - 20, 40);
+        }
+
+        function drawTimer() {
+            ctx.font = '24px Arial';
+            ctx.fillStyle = 'black';
+            ctx.textAlign = 'center';
+            ctx.fillText(`Time: ${gameTime}s`, canvas.width / 2, 40);
+        }
+
+        function drawCertainly() {
+            ctx.font = '24px Arial';
+            ctx.fillStyle = 'navy';
+            ctx.textAlign = 'left';
+            ctx.fillText('certainly', 20, 40);
+            ctx.font = '14px Arial';
+            ctx.fillText("Press ';' to pause", 130, 40);
+        }
+
+        function drawUILine() {
+            ctx.beginPath();
+            ctx.moveTo(0, uiLineY);
+            ctx.lineTo(canvas.width, uiLineY);
+            ctx.strokeStyle = 'black';
+            ctx.stroke();
+        }
+
+        function gameLoop() {
+            if (!isGameActive || isPaused) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            rectangles = rectangles.filter(rect => {
+                rect.draw();
+                return rect.update();
+            });
+
+            envelopes = envelopes.filter(env => {
+                env.draw();
+                return env.update();
+            });
+
+            bells = bells.filter(bell => {
+                bell.draw();
+                return bell.update();
+            });
+
+            drawScore();
+            drawTimer();
+            drawCertainly();
+            drawUILine();
+
+            if (rectangles.length === 0) {
+                createRectangles(5);
+            }
+
+            if (Math.random() < 0.005 && envelopes.length === 0) {
+                createEnvelope();
+            }
+
+            if (Math.random() < 0.01 && bells.length === 0) {
+                createBell();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                if (!isPaused) {
+                    gameTime--;
+                    if (gameTime <= 0) {
+                        clearInterval(timerInterval);
+                        endGame();
+                    }
+                }
+            }, 1000);
+        }
+
+        function endGame() {
+            isGameActive = false;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('highScore', highScore);
+            }
+            finalScoreSpan.textContent = score;
+            highScoreSpan.textContent = highScore;
+            endScreen.style.display = 'block';
+        }
+
+        function restartGame() {
+            score = 0;
+            gameTime = 60;
+            rectangles = [];
+            envelopes = [];
+            bells = [];
+            isGameActive = true;
+            isTypingTest = false;
+            isPaused = false;
+            endScreen.style.display = 'none';
+            typingTest.style.display = 'none';
+            pauseMenu.style.display = 'none';
+            mainMenu.style.display = 'none';
+            connectionPopup.style.display = 'none';
+            createRectangles(5);
+            startTimer();
+            gameLoop();
+        }
+
+        function startTypingTest() {
+            isTypingTest = true;
+            typingTest.style.display = 'block';
+            const randomPhrase = phrases[Math.floor(Math.random() * phrases.length)];
+            typingPrompt.textContent = randomPhrase;
+            typingInput.value = '';
+            typingInput.focus();
+        }
+
+        typingInput.addEventListener('input', function() {
+            if (this.value === typingPrompt.textContent) {
+                isTypingTest = false;
+                typingTest.style.display = 'none';
+                score += 10;
+                gameLoop();
+            }
+        });
+
+        function showConnectionPopup() {
+            const randomName = names[Math.floor(Math.random() * names.length)];
+            connectionMessage.textContent = `${randomName} would like to connect`;
+            connectionPopup.style.display = 'block';
+        }
+
+        function acceptConnection() {
+            connectionPopup.style.display = 'none';
+            score += 3;
+            gameLoop();
+        }
+
+        function rejectConnection() {
+            connectionPopup.style.display = 'none';
+            gameLoop();
+        }
+
+        canvas.addEventListener('click', (event) => {
+            if (!isGameActive || isTypingTest || isPaused) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x = event.clientX - rect.left;
+            const y = event.clientY - rect.top;
+
+            rectangles = rectangles.filter(rect => {
+                if (x >= rect.x && x <= rect.x + rect.width &&
+                    y >= rect.y && y <= rect.y + rect.height) {
+                    score++;
+                    return false;
+                }
+                return true;
+            });
+
+            envelopes = envelopes.filter(env => {
+                if (x >= env.x && x <= env.x + env.width &&
+                    y >= env.y && y <= env.y + env.height) {
+                    startTypingTest();
+                    return false;
+                }
+                return true;
+            });
+
+            bells = bells.filter(bell => {
+                if (x >= bell.x && x <= bell.x + bell.width &&
+                    y >= bell.y && y <= bell.y + bell.height) {
+                    showConnectionPopup();
+                    return false;
+                }
+                return true;
+            });
+
+            if (rectangles.length === 0) {
+                createRectangles(5);
+            }
+        });
+
+        function pauseGame() {
+            isPaused = true;
+            pauseMenu.style.display = 'block';
+        }
+
+        function resumeGame() {
+            isPaused = false;
+            pauseMenu.style.display = 'none';
+            gameLoop();
+        }
+
+        function showHowToPlay() {
+            alert("How to Play:\n\n1. Click on 'Apply Now' rectangles to increase your score by 1 point.\n2. Click on envelope icons to start a typing test. Completing it adds 10 points.\n3. Click on bell icons to get connection requests. Accepting adds 3 points.\n4. Rectangles shrink over time, so be quick!\n5. Press ';' to pause the game.\n6. Try to get the highest score before time runs out!");
+        }
+
+        function showMainMenu() {
+            isGameActive = false;
+            clearInterval(timerInterval);
+            endScreen.style.display = 'none';
+            pauseMenu.style.display = 'none';
+            mainMenu.style.display = 'block';
+        }
+
+        function startGame() {
+            mainMenu.style.display = 'none';
+            restartGame();
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === ';') {
+                if (isPaused) {
+                    resumeGame();
+                } else {
+                    pauseGame();
+                }
+            }
+        });
+
+        showMainMenu();
+    </script>
+</body>
+</html>
